@@ -49,6 +49,7 @@ struct job_t {              /* The job struct */
     int state;              /* UNDEF, BG, FG, or ST */
     char cmdline[MAXLINE];  /* command line */
 };
+
 struct job_t jobs[MAXJOBS]; /* The job list */
 /* End global variables */
 
@@ -102,18 +103,18 @@ int main(int argc, char **argv)
     /* Parse the command line */
     while ((c = getopt(argc, argv, "hvp")) != EOF) {
         switch (c) {
-        case 'h':             /* print help message */
-            usage();
-	    break;
-        case 'v':             /* emit additional diagnostic info */
-            verbose = 1;
-	    break;
-        case 'p':             /* don't print a prompt */
-            emit_prompt = 0;  /* handy for automatic testing */
-	    break;
-	default:
-            usage();
-	}
+            case 'h':             /* print help message */
+                usage();
+    	        break;
+            case 'v':             /* emit additional diagnostic info */
+                verbose = 1;
+    	        break;
+            case 'p':             /* don't print a prompt */
+                emit_prompt = 0;  /* handy for automatic testing */
+    	        break;
+            default:
+                usage();
+    	}
     }
 
     /* Install the signal handlers */
@@ -131,23 +132,26 @@ int main(int argc, char **argv)
 
     /* Execute the shell's read/eval loop */
     while (1) {
+    	
+        /* Read command line */
+    	if (emit_prompt) {
+    	    printf("%s", prompt);
+    	    fflush(stdout);
+    	}
 
-	/* Read command line */
-	if (emit_prompt) {
-	    printf("%s", prompt);
-	    fflush(stdout);
-	}
-	if ((fgets(cmdline, MAXLINE, stdin) == NULL) && ferror(stdin))
-	    app_error("fgets error");
-	if (feof(stdin)) { /* End of file (ctrl-d) */
-	    fflush(stdout);
-	    exit(0);
-	}
+    	if ((fgets(cmdline, MAXLINE, stdin) == NULL) && ferror(stdin)) {
+    	    app_error("fgets error");
+        }
 
-	/* Evaluate the command line */
-	eval(cmdline);
-	fflush(stdout);
-	fflush(stdout);
+    	if (feof(stdin)) { /* End of file (ctrl-d) */
+    	    fflush(stdout);
+    	    exit(0);
+    	}
+
+    	/* Evaluate the command line */
+    	eval(cmdline);
+    	fflush(stdout);
+    	fflush(stdout);
     } 
 
     exit(0); /* control never reaches here */
@@ -185,44 +189,57 @@ int parseline(const char *cmdline, char **argv)
     int bg;                     /* background job? */
 
     strcpy(buf, cmdline);
-    buf[strlen(buf)-1] = ' ';  /* replace trailing '\n' with space */
-    while (*buf && (*buf == ' ')) /* ignore leading spaces */
-	buf++;
+
+    /* replace trailing '\n' with space */
+    buf[strlen(buf)-1] = ' ';  
+    
+    /* ignore leading spaces */
+    while (*buf && (*buf == ' ')) {
+        buf++;
+    }
 
     /* Build the argv list */
     argc = 0;
     if (*buf == '\'') {
-	buf++;
-	delim = strchr(buf, '\'');
+        buf++;
+        delim = strchr(buf, '\'');
     }
     else {
-	delim = strchr(buf, ' ');
+	   delim = strchr(buf, ' ');
     }
 
     while (delim) {
-	argv[argc++] = buf;
-	*delim = '\0';
-	buf = delim + 1;
-	while (*buf && (*buf == ' ')) /* ignore spaces */
-	       buf++;
+    	argv[argc++] = buf;
+    	*delim = '\0';
+    	buf = delim + 1;
 
-	if (*buf == '\'') {
-	    buf++;
-	    delim = strchr(buf, '\'');
-	}
-	else {
-	    delim = strchr(buf, ' ');
-	}
+        /* ignore spaces */
+    	while (*buf && (*buf == ' ')) {
+            buf++;       
+        }
+    	       
+    	if (*buf == '\'') {
+    	    buf++;
+    	    delim = strchr(buf, '\'');
+    	}
+
+    	else {
+    	    delim = strchr(buf, ' ');
+    	}   
     }
+
     argv[argc] = NULL;
     
-    if (argc == 0)  /* ignore blank line */
-	return 1;
+    /* ignore blank line */
+    if (argc == 0) {
+        return 1;
+    }  
 
     /* should the job run in the background? */
     if ((bg = (*argv[argc-1] == '&')) != 0) {
-	argv[--argc] = NULL;
+	   argv[--argc] = NULL;
     }
+
     return bg;
 }
 
@@ -309,8 +326,9 @@ void initjobs(struct job_t *jobs)
 {
     int i;
 
-    for (i = 0; i < MAXJOBS; i++)
+    for (i = 0; i < MAXJOBS; i++) {      
 	   clearjob(&jobs[i]);
+    }
 }
 
 /* maxjid - Returns largest allocated job ID */
@@ -318,9 +336,11 @@ int maxjid(struct job_t *jobs)
 {
     int i, max=0;
 
-    for (i = 0; i < MAXJOBS; i++)
-    	if (jobs[i].jid > max)
+    for (i = 0; i < MAXJOBS; i++) {
+    	if (jobs[i].jid > max) {
     	    max = jobs[i].jid;
+        }
+    }
 
     return max;
 }
@@ -330,8 +350,9 @@ int addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline)
 {
     int i;
     
-    if (pid < 1)
+    if (pid < 1) {
 	   return 0;
+    }
 
     for (i = 0; i < MAXJOBS; i++) {
     	if (jobs[i].pid == 0) {
@@ -465,6 +486,7 @@ void listjobs(struct job_t *jobs)
     	}
     }
 }
+
 /******************************
  * end job list helper routines
  ******************************/
