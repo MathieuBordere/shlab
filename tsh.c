@@ -170,6 +170,16 @@ int main(int argc, char **argv)
 */
 void eval(char *cmdline) 
 {
+    /* allocate storage for argv array */
+    char *argv[MAXARGS];
+    parseline(cmdline, argv);
+    
+    /* executes builtin_cmd directly in the logical test if the command
+    is built-in. If not, executes the non-built-in command */
+    if (!builtin_cmd(argv)) {
+        
+    }
+    
     return;
 }
 
@@ -244,12 +254,28 @@ int parseline(const char *cmdline, char **argv)
 }
 
 /* 
- * builtin_cmd - If the user has typed a built-in command then execute
- *    it immediately.  
+ * builtin_cmd - If the user has typed a built-in command then execute it immediately.
+ * supported cmds: bg, fg, quit, jobs  
+ * returns 0 if the command is not built-in
  */
 int builtin_cmd(char **argv) 
 {
-    return 0;     /* not a builtin command */
+    if (!strcmp(argv[0], "quit")) {
+        printf("quit command found\n");
+        return 1;
+    } else if (!strcmp(argv[0], "bg")) {
+        printf("bg command found\n");
+        return 1;
+    } else if (!strcmp(argv[0], "fg")) {
+        printf("fg command found\n");
+        return 1;
+    } else if (!strcmp(argv[0], "jobs")) {
+        printf("jobs command found\n");
+        return 1;
+    } else {
+        return 0;
+    }
+
 }
 
 /* 
