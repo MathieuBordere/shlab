@@ -205,7 +205,7 @@ int parseline(const char *cmdline, char **argv)
         delim = strchr(buf, '\'');
     }
     else {
-	   delim = strchr(buf, ' ');
+        delim = strchr(buf, ' ');
     }
 
     while (delim) {
@@ -237,7 +237,7 @@ int parseline(const char *cmdline, char **argv)
 
     /* should the job run in the background? */
     if ((bg = (*argv[argc-1] == '&')) != 0) {
-	   argv[--argc] = NULL;
+        argv[--argc] = NULL;
     }
 
     return bg;
@@ -326,8 +326,8 @@ void initjobs(struct job_t *jobs)
 {
     int i;
 
-    for (i = 0; i < MAXJOBS; i++) {      
-	   clearjob(&jobs[i]);
+    for (i = 0; i < MAXJOBS; i++) {
+        clearjob(&jobs[i]);
     }
 }
 
@@ -351,7 +351,7 @@ int addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline)
     int i;
     
     if (pid < 1) {
-	   return 0;
+        return 0;
     }
 
     for (i = 0; i < MAXJOBS; i++) {
@@ -360,7 +360,7 @@ int addjob(struct job_t *jobs, pid_t pid, int state, char *cmdline)
     	    jobs[i].state = state;
     	    jobs[i].jid = nextjid++;
     	    if (nextjid > MAXJOBS) {
-        		nextjid = 1;
+                nextjid = 1;
             }
     	    strcpy(jobs[i].cmdline, cmdline);
       	    if(verbose){
@@ -379,7 +379,7 @@ int deletejob(struct job_t *jobs, pid_t pid)
     int i;
 
     if (pid < 1) {
-	   return 0;
+        return 0;
     }
 
     for (i = 0; i < MAXJOBS; i++) {
@@ -469,18 +469,17 @@ void listjobs(struct job_t *jobs)
     	if (jobs[i].pid != 0) {
     	    printf("[%d] (%d) ", jobs[i].jid, jobs[i].pid);
     	    switch (jobs[i].state) {
-    		case BG: 
-    		    printf("Running ");
-    		    break;
-    		case FG: 
-    		    printf("Foreground ");
-    		    break;
-    		case ST: 
-    		    printf("Stopped ");
-    		    break;
-    	    default:
-    		    printf("listjobs: Internal error: job[%d].state=%d ", 
-    			   i, jobs[i].state);
+                case BG:
+                    printf("Running ");
+                    break;
+                case FG:
+                    printf("Foreground ");
+                    break;
+                case ST:
+                    printf("Stopped ");
+                    break;
+                default:
+                    printf("listjobs: Internal error: job[%d].state=%d ", i, jobs[i].state);
     	    }
     	    printf("%s", jobs[i].cmdline);
     	}
@@ -537,8 +536,10 @@ handler_t *Signal(int signum, handler_t *handler)
     sigemptyset(&action.sa_mask); /* block sigs of type being handled */
     action.sa_flags = SA_RESTART; /* restart syscalls if possible */
 
-    if (sigaction(signum, &action, &old_action) < 0)
-	unix_error("Signal error");
+    if (sigaction(signum, &action, &old_action) < 0) {
+        unix_error("Signal error");   
+    }
+	
     return (old_action.sa_handler);
 }
 
