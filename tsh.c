@@ -59,7 +59,8 @@ struct job_t jobs[MAXJOBS]; /* The job list */
 /* Here are the functions that you will implement */
 void eval(char *cmdline);
 int builtin_cmd(char **argv);
-void do_bgfg(char **argv);
+void do_bg(char **argv);
+void do_fg(char **argv);
 void waitfg(pid_t pid);
 
 void sigchld_handler(int sig);
@@ -172,12 +173,20 @@ void eval(char *cmdline)
 {
     /* allocate storage for argv array */
     char *argv[MAXARGS];
-    parseline(cmdline, argv);
+    int bg;
+    //pid_t child;
+
+    bg = parseline(cmdline, argv);
     
+
     /* executes builtin_cmd directly in the logical test if the command
     is built-in. If not, executes the non-built-in command */
     if (!builtin_cmd(argv)) {
-        
+        if (bg) {
+
+        } else {
+
+        }
     }
     
     return;
@@ -261,13 +270,13 @@ int parseline(const char *cmdline, char **argv)
 int builtin_cmd(char **argv) 
 {
     if (!strcmp(argv[0], "quit")) {
-        printf("quit command found\n");
+        exit(0);
         return 1;
     } else if (!strcmp(argv[0], "bg")) {
-        printf("bg command found\n");
+        do_bg(argv);
         return 1;
     } else if (!strcmp(argv[0], "fg")) {
-        printf("fg command found\n");
+        do_fg(argv);
         return 1;
     } else if (!strcmp(argv[0], "jobs")) {
         printf("jobs command found\n");
@@ -279,9 +288,17 @@ int builtin_cmd(char **argv)
 }
 
 /* 
- * do_bgfg - Execute the builtin bg and fg commands
+ * do_bg - Execute the builtin bg command
  */
-void do_bgfg(char **argv) 
+void do_bg(char **argv) 
+{
+    return;
+}
+
+/* 
+ * do_fg - Execute the builtin fg command
+ */
+void do_fg(char **argv)
 {
     return;
 }
