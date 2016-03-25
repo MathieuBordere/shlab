@@ -174,18 +174,38 @@ void eval(char *cmdline)
     /* allocate storage for argv array */
     char *argv[MAXARGS];
     int bg;
-    //pid_t child;
+    pid_t pid;
 
     bg = parseline(cmdline, argv);
     
-
     /* executes builtin_cmd directly in the logical test if the command
     is built-in. If not, executes the non-built-in command */
     if (!builtin_cmd(argv)) {
-        if (bg) {
+        pid = fork();
 
-        } else {
+        if (pid < 0) {
+            unix_error("fork failed.");
+            exit(1);
+        }
 
+        /* create a job */
+        addjob(jobs, pid, bg+1, cmdline);
+
+        /* child */
+        if (pid == 0) {
+            if (execve(argv[0], argv, environ) < 0) {
+                unix_error("Command not found.");
+                exit(0);
+            }
+        }
+
+        /* parent */
+        if (!bg) {
+            int status;
+            if (waitpid(pid, &status, 0) < 0) {
+                unix_error("waitfg: waitpid error");
+            }
+            deletejob(jobs, pid);
         }
     }
     
