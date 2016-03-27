@@ -81,6 +81,7 @@ struct job_t *getjobpid(struct job_t *jobs, pid_t pid);
 struct job_t *getjobjid(struct job_t *jobs, int jid); 
 int pid2jid(pid_t pid); 
 void listjobs(struct job_t *jobs);
+void listjob(struct job_t *job);
 
 void usage(void);
 void unix_error(char *msg);
@@ -183,6 +184,11 @@ void eval(char *cmdline)
 
     bg = parseline(cmdline, argv);
     
+    /* return on empty command */
+    if (bg == -1) {
+        return; 
+    }
+    
     /* executes builtin_cmd directly in the logical test if the command
     is built-in. If not, executes the non-built-in command */
     if (!builtin_cmd(argv)) {
@@ -217,7 +223,9 @@ void eval(char *cmdline)
         /* parent */
         if (!bg) {  
             waitfg(pid);
-        } 
+        } else {
+            listjob(getjobpid(jobs, pid));
+        }
     }
     
     return;
@@ -282,7 +290,7 @@ int parseline(const char *cmdline, char **argv)
     
     /* ignore blank line */
     if (argc == 0) {
-        return 1;
+        return -1;
     }  
 
     /* should the job run in the background? */
@@ -388,7 +396,13 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
-    printf("Caught SININT\n");
+    pid_t pid = fgpid(jobs);
+    
+    if (pid == 0) {
+        return;
+    }
+
+    kill(-pid, SIGINT);
     return;
 }
 
@@ -399,7 +413,18 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
-    printf("Caught SIGSTOP\n");
+    pid_t pid = fgpid(jobs);
+    
+    if (pid == 0) {
+        return;
+    }
+
+    kill(-pid, SIGTSTP);
+
+    /* update foreground job state to ST */
+    struct job_t *fgjob = getjobpid(jobs, pid);
+    fgjob->state = ST;
+
     return;
 }
 
@@ -593,6 +618,11 @@ void listjobs(struct job_t *jobs)
 /***********************
  * Other helper routines
  ***********************/
+
+void listjob(struct job_t *job)
+{
+    printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+}
 
 /*
  * usage - print a help message
