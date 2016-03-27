@@ -175,6 +175,11 @@ void eval(char *cmdline)
     char *argv[MAXARGS];
     int bg;
     pid_t pid;
+    sigset_t mask_all, mask_sigchld, prev_one;
+
+    sigfillset(&mask_all);
+    sigemptyset(&mask_sigchld);
+    sigaddset(&mask_sigchld, SIGCHLD);
 
     bg = parseline(cmdline, argv);
     
@@ -188,25 +193,31 @@ void eval(char *cmdline)
             exit(1);
         }
 
-        /* create a job */
-        addjob(jobs, pid, bg+1, cmdline);
+        /* Block SIGCHLD signals */
+        sigprocmask(SIG_BLOCK, &mask_sigchld, &prev_one);
 
         /* child */
         if (pid == 0) {
+
+            /* put child in new processgroup with pgid = pid[child] */
+            setpgid(0, 0);
+
+            /* Unblock SIGCHLD */
+            sigprocmask(SIG_SETMASK, &prev_one, NULL);
+            
             if (execve(argv[0], argv, environ) < 0) {
                 unix_error("Command not found.");
                 exit(0);
             }
         }
 
+        addjob(jobs, pid, bg+1, cmdline);
+        sigprocmask(SIG_SETMASK, &prev_one, NULL);
+
         /* parent */
-        if (!bg) {
-            int status;
-            if (waitpid(pid, &status, 0) < 0) {
-                unix_error("waitfg: waitpid error");
-            }
-            deletejob(jobs, pid);
-        }
+        if (!bg) {  
+            waitfg(pid);
+        } 
     }
     
     return;
@@ -328,6 +339,13 @@ void do_fg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    /* sleep indefinitely untill FG process is no longer the FG process */
+    while(1) {
+        sleep(1);
+        if (fgpid(jobs) != pid) {
+            break;
+        }
+    }
     return;
 }
 
@@ -344,6 +362,22 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
+    int olderrno = errno;
+    sigset_t mask_all, prev_all;
+    pid_t pid;
+
+    sigfillset(&mask_all);
+    while((pid = waitpid(-1, NULL, 0)) > 0) {
+        sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+        deletejob(jobs, pid);
+        sigprocmask(SIG_SETMASK, &prev_all, NULL);
+    }
+
+    if (errno != ECHILD) {
+        unix_error("waitpid error");
+    }
+
+    errno = olderrno;
     return;
 }
 
@@ -354,6 +388,7 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    printf("Caught SININT\n");
     return;
 }
 
@@ -364,6 +399,7 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+    printf("Caught SIGSTOP\n");
     return;
 }
 
