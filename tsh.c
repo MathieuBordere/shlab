@@ -90,7 +90,14 @@ void usage(void);
 void unix_error(char *msg);
 void app_error(char *msg);
 typedef void handler_t(int);
+
+/* Error handling wrappers around system calls */
+int Kill(pid_t pid, int sig);
 handler_t *Signal(int signum, handler_t *handler);
+int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
+int Sigfillset(sigset_t *set);
+int Sigemptyset(sigset_t *set);
+int Sigaddset(sigset_t *set, int signum);
 
 /*
  * main - The shell's main routine 
@@ -181,9 +188,9 @@ void eval(char *cmdline)
     pid_t pid;
     sigset_t mask_all, mask_sigchld, prev_one;
 
-    sigfillset(&mask_all);
-    sigemptyset(&mask_sigchld);
-    sigaddset(&mask_sigchld, SIGCHLD);
+    Sigfillset(&mask_all);
+    Sigemptyset(&mask_sigchld);
+    Sigaddset(&mask_sigchld, SIGCHLD);
 
     bg = parseline(cmdline, argv);
     
@@ -203,16 +210,18 @@ void eval(char *cmdline)
         }
 
         /* Block SIGCHLD signals */
-        sigprocmask(SIG_BLOCK, &mask_sigchld, &prev_one);
+        Sigprocmask(SIG_BLOCK, &mask_sigchld, &prev_one);
 
         /* child */
         if (pid == 0) {
 
             /* put child in new processgroup with pgid = pid[child] */
-            setpgid(0, 0);
+            if(setpgid(0, 0) < 0) {
+                unix_error("setpgid failed");
+            }
 
             /* Unblock SIGCHLD */
-            sigprocmask(SIG_SETMASK, &prev_one, NULL);
+            Sigprocmask(SIG_SETMASK, &prev_one, NULL);
             
             if (execve(argv[0], argv, environ) < 0) {
                 unix_error("Command not found.");
@@ -220,12 +229,12 @@ void eval(char *cmdline)
             }
         }
 
-        sigprocmask(SIG_BLOCK, &mask_all, NULL);
+        Sigprocmask(SIG_BLOCK, &mask_all, NULL);
         addjob(jobs, pid, bg+1, cmdline);
         if (bg) {
             listjob(getjobpid(jobs, pid));
         }
-        sigprocmask(SIG_SETMASK, &prev_one, NULL);
+        Sigprocmask(SIG_SETMASK, &prev_one, NULL);
 
         /* parent */
         if (!bg) {  
@@ -380,14 +389,14 @@ void sigchld_handler(int sig)
     sigset_t mask_all, prev_all;
     pid_t pid;
 
-    sigfillset(&mask_all);
+    Sigfillset(&mask_all);
     while((pid = waitpid(-1, &status, WNOHANG)) > 0) {
         if (WIFSIGNALED(status)) {
            /* Print something */
         }
-        sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+        Sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
         deletejob(jobs, pid);
-        sigprocmask(SIG_SETMASK, &prev_all, NULL);
+        Sigprocmask(SIG_SETMASK, &prev_all, NULL);
     }
 
     // if (errno != ECHILD) {
@@ -413,7 +422,7 @@ void sigint_handler(int sig)
         return;
     }
 
-    kill(-pid, SIGINT);
+    Kill(-pid, SIGINT);
     errno = olderrno;
     return;
 }
@@ -429,19 +438,19 @@ void sigtstp_handler(int sig)
     pid_t pid = fgpid(jobs);
     sigset_t mask_all, prev_all;
 
-    sigfillset(&mask_all);
+    Sigfillset(&mask_all);
     
     if (pid == 0) {
         return;
     }
 
-    kill(-pid, SIGTSTP);
+    Kill(-pid, SIGTSTP);
 
     /* update foreground job state to ST */
-    sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+    Sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
     struct job_t *fgjob = getjobpid(jobs, pid);
     fgjob->state = ST;
-    sigprocmask(SIG_SETMASK, &prev_all, NULL);
+    Sigprocmask(SIG_SETMASK, &prev_all, NULL);
 
     errno = olderrno;
     return;
@@ -698,6 +707,15 @@ void app_error(char *msg)
     exit(1);
 }
 
+int Kill(pid_t pid, int sig) 
+{
+    int res = kill(pid, sig);
+    if (res < 0) {
+        unix_error("kill failed");
+    }
+    return res;
+}
+
 /*
  * Signal - wrapper for the sigaction function
  */
@@ -716,6 +734,41 @@ handler_t *Signal(int signum, handler_t *handler)
     return (old_action.sa_handler);
 }
 
+int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
+{
+    int res = sigprocmask(how, set, oldset);
+    if (res < 0) {
+        unix_error("sigprocmask error");
+    }
+    return res;
+}
+
+int Sigfillset(sigset_t *set)
+{
+    int res = sigfillset(set);
+    if (res < 0) {
+        unix_error("sigfillset error");
+    }
+    return res;
+}
+
+int Sigemptyset(sigset_t *set)
+{
+    int res = sigemptyset(set);
+    if (res < 0) {
+        unix_error("sigemptyset error");
+    }
+    return res;
+}
+
+int Sigaddset(sigset_t *set, int signum) 
+{
+    int res = sigaddset(set, signum);
+    if (res < 0) {
+        unix_error("sigaddset error");
+    }
+    return res;
+}
 /*
  * sigquit_handler - The driver program can gracefully terminate the
  *    child shell by sending it a SIGQUIT signal.
