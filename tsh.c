@@ -4,6 +4,8 @@
  * Mathieu Bordere
  */
 
+/* TODO: Write Error Handling wrappers for syscalls, bg, fg commands,  */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -81,6 +83,7 @@ struct job_t *getjobpid(struct job_t *jobs, pid_t pid);
 struct job_t *getjobjid(struct job_t *jobs, int jid); 
 int pid2jid(pid_t pid); 
 void listjobs(struct job_t *jobs);
+void listbgjobs(struct job_t *jobs);
 void listjob(struct job_t *job);
 
 void usage(void);
@@ -217,17 +220,18 @@ void eval(char *cmdline)
             }
         }
 
+        sigprocmask(SIG_BLOCK, &mask_all, NULL);
         addjob(jobs, pid, bg+1, cmdline);
+        if (bg) {
+            listjob(getjobpid(jobs, pid));
+        }
         sigprocmask(SIG_SETMASK, &prev_one, NULL);
 
         /* parent */
         if (!bg) {  
             waitfg(pid);
-        } else {
-            listjob(getjobpid(jobs, pid));
         }
-    }
-    
+    }  
     return;
 }
 
@@ -318,7 +322,8 @@ int builtin_cmd(char **argv)
         do_fg(argv);
         return 1;
     } else if (!strcmp(argv[0], "jobs")) {
-        printf("jobs command found\n");
+        listbgjobs(jobs);
+        fflush(stdout);
         return 1;
     } else {
         return 0;
@@ -371,19 +376,24 @@ void waitfg(pid_t pid)
 void sigchld_handler(int sig) 
 {
     int olderrno = errno;
+    int status;
     sigset_t mask_all, prev_all;
     pid_t pid;
 
     sigfillset(&mask_all);
-    while((pid = waitpid(-1, NULL, 0)) > 0) {
+    while((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        if (WIFSIGNALED(status)) {
+           /* Print something */
+        }
         sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
         deletejob(jobs, pid);
         sigprocmask(SIG_SETMASK, &prev_all, NULL);
     }
 
-    if (errno != ECHILD) {
-        unix_error("waitpid error");
-    }
+    // if (errno != ECHILD) {
+    //     int state = write(1, "errno error", 11);
+    //     exit(state);
+    // }
 
     errno = olderrno;
     return;
@@ -396,6 +406,7 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    int olderrno = errno;
     pid_t pid = fgpid(jobs);
     
     if (pid == 0) {
@@ -403,6 +414,7 @@ void sigint_handler(int sig)
     }
 
     kill(-pid, SIGINT);
+    errno = olderrno;
     return;
 }
 
@@ -413,7 +425,11 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
+    int olderrno = errno;
     pid_t pid = fgpid(jobs);
+    sigset_t mask_all, prev_all;
+
+    sigfillset(&mask_all);
     
     if (pid == 0) {
         return;
@@ -422,9 +438,12 @@ void sigtstp_handler(int sig)
     kill(-pid, SIGTSTP);
 
     /* update foreground job state to ST */
+    sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
     struct job_t *fgjob = getjobpid(jobs, pid);
     fgjob->state = ST;
+    sigprocmask(SIG_SETMASK, &prev_all, NULL);
 
+    errno = olderrno;
     return;
 }
 
@@ -607,6 +626,31 @@ void listjobs(struct job_t *jobs)
     	    }
     	    printf("%s", jobs[i].cmdline);
     	}
+    }
+}
+
+/* listbgjobs - Print the bg job list */
+void listbgjobs(struct job_t *jobs) 
+{
+    int i;
+    
+    for (i = 0; i < MAXJOBS; i++) {
+        if (jobs[i].pid != 0) {    
+            switch (jobs[i].state) {
+                case BG:
+                    printf("[%d] (%d) ", jobs[i].jid, jobs[i].pid);
+                    printf("Running ");
+                    printf("%s", jobs[i].cmdline);
+                    break;
+                case ST:
+                    printf("[%d] (%d) ", jobs[i].jid, jobs[i].pid);
+                    printf("Stopped ");
+                    printf("%s", jobs[i].cmdline);
+                    break;
+                default:
+                    break;
+            }
+        }
     }
 }
 
