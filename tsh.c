@@ -4,7 +4,7 @@
  * Mathieu Bordere
  */
 
-/* TODO: Write Error Handling wrappers for syscalls, bg, fg commands,  */
+/* TODO: safe writing in handlers */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,7 +55,6 @@ struct job_t {              /* The job struct */
 struct job_t jobs[MAXJOBS]; /* The job list */
 /* End global variables */
 
-
 /* Function prototypes */
 
 /* Here are the functions that you will implement */
@@ -91,17 +90,15 @@ void unix_error(char *msg);
 void app_error(char *msg);
 typedef void handler_t(int);
 
+handler_t *Signal(int signum, handler_t *handler);
+
 /* Error handling wrappers around system calls */
 int Kill(pid_t pid, int sig);
-handler_t *Signal(int signum, handler_t *handler);
-int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
-int Sigfillset(sigset_t *set);
-int Sigemptyset(sigset_t *set);
 int Sigaddset(sigset_t *set, int signum);
+int Sigemptyset(sigset_t *set);
+int Sigfillset(sigset_t *set);
+int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset);
 
-/*
- * main - The shell's main routine 
- */
 int main(int argc, char **argv) 
 {
     char c;
@@ -229,6 +226,7 @@ void eval(char *cmdline)
             }
         }
 
+        /* parent */
         Sigprocmask(SIG_BLOCK, &mask_all, NULL);
         addjob(jobs, pid, bg+1, cmdline);
         if (bg) {
@@ -236,7 +234,6 @@ void eval(char *cmdline)
         }
         Sigprocmask(SIG_SETMASK, &prev_one, NULL);
 
-        /* parent */
         if (!bg) {  
             waitfg(pid);
         }
@@ -337,7 +334,6 @@ int builtin_cmd(char **argv)
     } else {
         return 0;
     }
-
 }
 
 /* 
@@ -390,19 +386,26 @@ void sigchld_handler(int sig)
     pid_t pid;
 
     Sigfillset(&mask_all);
-    while((pid = waitpid(-1, &status, WNOHANG)) > 0) {
-        if (WIFSIGNALED(status)) {
-           /* Print something */
+    while((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+        
+        /* If we exited normally, we can safely delete the job */
+        if (WIFEXITED(status)) {
+            Sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+            deletejob(jobs, pid);
+            Sigprocmask(SIG_SETMASK, &prev_all, NULL);
         }
-        Sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
-        deletejob(jobs, pid);
-        Sigprocmask(SIG_SETMASK, &prev_all, NULL);
-    }
 
-    // if (errno != ECHILD) {
-    //     int state = write(1, "errno error", 11);
-    //     exit(state);
-    // }
+        if (WIFSTOPPED(status)) {
+            printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid), pid, WSTOPSIG(status));
+        }
+
+        if (WIFSIGNALED(status)) {
+            printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(pid), pid, WTERMSIG(status));
+            Sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+            deletejob(jobs, pid);
+            Sigprocmask(SIG_SETMASK, &prev_all, NULL);
+        }
+    }
 
     errno = olderrno;
     return;
@@ -454,6 +457,16 @@ void sigtstp_handler(int sig)
 
     errno = olderrno;
     return;
+}
+
+/*
+ * sigquit_handler - The driver program can gracefully terminate the
+ *    child shell by sending it a SIGQUIT signal.
+ */
+void sigquit_handler(int sig) 
+{
+    printf("Terminating after receipt of SIGQUIT signal\n");
+    exit(1);
 }
 
 /*********************
@@ -707,15 +720,6 @@ void app_error(char *msg)
     exit(1);
 }
 
-int Kill(pid_t pid, int sig) 
-{
-    int res = kill(pid, sig);
-    if (res < 0) {
-        unix_error("kill failed");
-    }
-    return res;
-}
-
 /*
  * Signal - wrapper for the sigaction function
  */
@@ -734,20 +738,21 @@ handler_t *Signal(int signum, handler_t *handler)
     return (old_action.sa_handler);
 }
 
-int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
+/* Error handling wrappers around system calls */
+int Kill(pid_t pid, int sig) 
 {
-    int res = sigprocmask(how, set, oldset);
+    int res = kill(pid, sig);
     if (res < 0) {
-        unix_error("sigprocmask error");
+        unix_error("kill failed");
     }
     return res;
 }
 
-int Sigfillset(sigset_t *set)
+int Sigaddset(sigset_t *set, int signum) 
 {
-    int res = sigfillset(set);
+    int res = sigaddset(set, signum);
     if (res < 0) {
-        unix_error("sigfillset error");
+        unix_error("sigaddset error");
     }
     return res;
 }
@@ -761,23 +766,20 @@ int Sigemptyset(sigset_t *set)
     return res;
 }
 
-int Sigaddset(sigset_t *set, int signum) 
+int Sigfillset(sigset_t *set)
 {
-    int res = sigaddset(set, signum);
+    int res = sigfillset(set);
     if (res < 0) {
-        unix_error("sigaddset error");
+        unix_error("sigfillset error");
     }
     return res;
 }
-/*
- * sigquit_handler - The driver program can gracefully terminate the
- *    child shell by sending it a SIGQUIT signal.
- */
-void sigquit_handler(int sig) 
+
+int Sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 {
-    printf("Terminating after receipt of SIGQUIT signal\n");
-    exit(1);
+    int res = sigprocmask(how, set, oldset);
+    if (res < 0) {
+        unix_error("sigprocmask error");
+    }
+    return res;
 }
-
-
-
