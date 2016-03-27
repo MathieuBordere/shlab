@@ -341,6 +341,31 @@ int builtin_cmd(char **argv)
  */
 void do_bg(char **argv) 
 {
+    sigset_t mask_sigchld, prev_one;
+    int jid = atoi(&argv[1][1]);
+    struct job_t *job = getjobjid(jobs, jid);
+    Sigemptyset(&mask_sigchld);
+    Sigaddset(&mask_sigchld, SIGCHLD);
+
+    if (job != NULL) {
+
+        if (job->state != ST) {
+            app_error("bg error - Job is not STOPPED.");
+        }
+
+        printf("[%d] (%d) ", job->jid, job->pid);
+        printf("%s", job->cmdline);
+
+        /* we want to mask SIGCHLD so that it isn't caught before state is adapted */
+        Sigprocmask(SIG_BLOCK, &mask_sigchld, &prev_one);
+        Kill(job->pid, SIGCONT);
+        job->state = BG;
+        Sigprocmask(SIG_SETMASK, &prev_one, NULL);
+
+    } else {
+        app_error("no such job");
+    }
+
     return;
 }
 
