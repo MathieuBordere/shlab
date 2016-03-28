@@ -60,8 +60,7 @@ struct job_t jobs[MAXJOBS]; /* The job list */
 /* Here are the functions that you will implement */
 void eval(char *cmdline);
 int builtin_cmd(char **argv);
-void do_bg(char **argv);
-void do_fg(char **argv);
+void do_bgfg(char **argv);
 void waitfg(pid_t pid);
 
 void sigchld_handler(int sig);
@@ -88,6 +87,7 @@ void listjob(struct job_t *job);
 void usage(void);
 void unix_error(char *msg);
 void app_error(char *msg);
+int isnumber(char *num);
 typedef void handler_t(int);
 
 handler_t *Signal(int signum, handler_t *handler);
@@ -322,10 +322,10 @@ int builtin_cmd(char **argv)
         exit(0);
         return 1;
     } else if (!strcmp(argv[0], "bg")) {
-        do_bg(argv);
+        do_bgfg(argv);
         return 1;
     } else if (!strcmp(argv[0], "fg")) {
-        do_fg(argv);
+        do_bgfg(argv);
         return 1;
     } else if (!strcmp(argv[0], "jobs")) {
         listbgjobs(jobs);
@@ -337,43 +337,72 @@ int builtin_cmd(char **argv)
 }
 
 /* 
- * do_bg - Execute the builtin bg command
+ * do_bgfg - Execute the builtin bg and fg commands
  */
-void do_bg(char **argv) 
+void do_bgfg(char **argv) 
 {
     sigset_t mask_sigchld, prev_one;
-    int jid = atoi(&argv[1][1]);
-    struct job_t *job = getjobjid(jobs, jid);
+    struct job_t *job;
+    int isbg = !strcmp(argv[0], "bg");
+
+    if (argv[1] == NULL) {
+        printf("%s command requires PID or %%jobid argument\n", argv[0]);
+        return;
+    }
+
+    int isjid = '%' == argv[1][0];
+
+    if (isjid) {
+        char *jid = &argv[1][1];
+        if (!isnumber(jid)) {
+            printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+            return;
+        }
+        job = getjobjid(jobs, atoi(jid));
+        if (job == NULL) {
+            printf("no such job\n");
+            return;
+        }
+    } else {
+        if (!isnumber(argv[1])) {
+            printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+            return;
+        }
+        job = getjobpid(jobs, atoi(argv[1]));
+        if (job == NULL) {
+            printf("no such process\n");
+            return;
+        }
+    }
+
     Sigemptyset(&mask_sigchld);
     Sigaddset(&mask_sigchld, SIGCHLD);
 
-    if (job != NULL) {
-
-        if (job->state != ST) {
-            app_error("bg error - Job is not STOPPED.");
-        }
-
-        printf("[%d] (%d) ", job->jid, job->pid);
-        printf("%s", job->cmdline);
-
-        /* we want to mask SIGCHLD so that it isn't caught before state is adapted */
-        Sigprocmask(SIG_BLOCK, &mask_sigchld, &prev_one);
-        Kill(job->pid, SIGCONT);
-        job->state = BG;
-        Sigprocmask(SIG_SETMASK, &prev_one, NULL);
-
-    } else {
-        app_error("no such job");
+    if (isbg && job->state != ST) {
+        printf("bg error - Job is not STOPPED.\n");
+        return;
     }
 
-    return;
-}
+    if (!isbg && !(job->state == ST || job->state == BG)) {
+        printf("fg error - Job is not STOPPED or in BACKGROUND.\n");
+        return;
+    }
 
-/* 
- * do_fg - Execute the builtin fg command
- */
-void do_fg(char **argv)
-{
+    /* we want to mask SIGCHLD so that it isn't caught before state is adapted */
+    Sigprocmask(SIG_BLOCK, &mask_sigchld, &prev_one);
+    Kill(-(job->pid), SIGCONT);
+    if (isbg) {
+        listjob(job);
+        job->state = BG;
+    } else {
+        job->state = FG;
+    }
+    Sigprocmask(SIG_SETMASK, &prev_one, NULL);
+
+    if (!isbg) {
+        waitfg(job->pid);
+    }
+
     return;
 }
 
@@ -743,6 +772,18 @@ void app_error(char *msg)
 {
     fprintf(stdout, "%s\n", msg);
     exit(1);
+}
+
+/* return 1 if number 0 if not */
+int isnumber(char *num) {
+    int i = 0;
+    while (num[i] != '\0') {
+        if (!isdigit(num[i])) {
+            return 0;
+        }
+        i++;
+    }
+    return 1;
 }
 
 /*
